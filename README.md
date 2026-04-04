@@ -1,153 +1,205 @@
-# WSH — Windows Shared-memory Header for MAME layer export
+# RetroDepth
 
-A set of patches for MAME that exposes each video layer as a separate BGRA bitmap
-through Windows shared memory, so an external application can consume them in real time.
+Play retro arcade and console games in VR as a layered 3D diorama — each video layer (background, sprites, HUD) rendered at a different depth so the screen has real parallax.
 
----
-
-## What it does
-
-Each video frame MAME writes two shared-memory blocks:
-
-### `Local\RetroDepthFrameBuffer` — frame data (read by the consumer)
-
-| Field | Description |
-|---|---|
-| `frame_id` | Increments every frame. Poll this to detect new frames. |
-| `layer_count` | Number of active layers this frame (up to 8). |
-| `layers[]` | Array of `RDLayerDesc` — name, size, draw order, pixel offset. |
-| `palette_argb[256][16]` | Full Neo Geo palette RAM, gamma-corrected ARGB8888. |
-| `pal_thumb[256][32×32]` | Per-palette 32×32 thumbnail (written on request). |
-| pixel data | BGRA 4 bytes/pixel per layer, at `layer.data_offset`. |
-| owner data | `uint16` palette index per pixel, at `layer.owner_offset`. |
-
-**Layers written for Neo Geo:**
-
-| Name | Contents |
-|---|---|
-| `background` | Background tilemap |
-| `grp0` – `grp3` | Sprite palettes grouped by depth assignment |
-| `fix` | Fix layer (HUD / text overlay) |
-
-**Layers written for CPS1 and CPS2:**
-
-| Name | Contents |
-|---|---|
-| `background` | Solid background fill |
-| `scroll1` – `scroll3` | Background scroll planes |
-| `sprites` | Sprite layer |
-
-### `Local\RetroDepthControl` — depth routing (written by the consumer)
-
-| Field | Description |
-|---|---|
-| `route[256]` | For each of the 256 Neo Geo palettes: which depth group (0–3) it belongs to. `0xFF` = default group 0. |
-| `thumb_requested` | Set to `1` to ask MAME to render per-palette thumbnails. |
-
-The consumer writes this block to tell MAME how to distribute palettes across the
-`grp0`–`grp3` layers. MAME reads it once per frame.
+RetroDepth runs alongside a patched build of MAME (**rdmame**). MAME handles emulation normally; rdmame exports per-layer bitmaps through Windows shared memory; RetroDepth reads them and renders them as quads in OpenXR.
 
 ---
 
-## Shared memory layout
+## Requirements
+
+- Windows 10/11 64-bit
+- A VR headset supported by **SteamVR** (Quest via Air Link, Index, Vive, WMR, etc.)
+- SteamVR installed and running before launching RetroDepth
+
+---
+
+## Quick start (pre-built release)
+
+1. Download `retrodepth.zip` from the [Releases](../../releases) page and extract it anywhere.
+2. Copy your ROMs into the `roms\` folder (and SNES BIOS into `bios\` if needed).
+3. Launch **retrodepth.exe** — the game launcher opens.
+4. Pick a game and click **Launch VR**.
+
+The launcher starts rdmame automatically. Put on your headset and the game appears as a floating diorama.
+
+---
+
+## Supported systems
+
+| System | Notes |
+|--------|-------|
+| **Neo Geo** | Full palette routing — assign sprite palettes to depth groups via the built-in editor |
+| **CPS1** (Capcom) | scroll1–3, sprites, background layers |
+| **CPS2** (Capcom) | scroll1–3, sprites, background layers |
+| **TMNT** (Konami) | Multi-layer export |
+| **The Simpsons** (Konami) | Multi-layer export |
+| **SNES / Super Famicom** | BG1–4, sprites, colour math layers |
+| **Genesis / Mega Drive** | Plane A/B, sprites, window |
+| **Sega Master System** | Background, sprites |
+| **Game Boy / Game Boy Color** | BG, sprites, window |
+
+Game configs are included for ~40 Neo Geo and CPS titles. Other systems use an auto-generated default config that can be tuned in the editor.
+
+---
+
+## Building from source
+
+### One-step build (recommended)
+
+Requirements: [MSYS2](https://www.msys2.org) + MinGW-w64, [Visual Studio 2022 Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022) (Desktop C++ workload), and a clone of the MAME source.
+
+```bat
+REM 1. Get MAME source at the tested commit
+git clone https://github.com/mamedev/mame.git C:\mame-src
+cd C:\mame-src
+git checkout 3bca6291cc76b2b1ebfe7c50f225eb6ad44c9847
+
+REM 2. Run the build script from this repo
+build.bat C:\mame-src
+```
+
+`build.bat` will:
+- Auto-install vcpkg (clones + bootstraps into `C:\vcpkg` if not found)
+- Overlay the MAME patches onto your MAME source
+- Build **rdmame.exe** (~30–60 min first time)
+- Build **retrodepth.exe**
+- Package everything into `output\`
+
+The MSYS2 MinGW64 toolchain must be installed first:
+```bash
+pacman -S mingw-w64-x86_64-gcc make
+```
+
+### Manual build
+
+#### rdmame (patched MAME)
+
+```bash
+# Apply patches (from repo root)
+cp -r src/   C:/mame-src/src/
+cp -r scripts/ C:/mame-src/scripts/
+
+# Build (in MSYS2 MinGW64 shell)
+cd C:/mame-src
+make -j8 IGNORE_GIT=1 REGENIE=1 SUBTARGET=rdmame \
+  SOURCES=src/mame/neogeo/neogeo.cpp,src/mame/capcom/cps1.cpp,src/mame/capcom/cps2.cpp,\
+src/mame/konami/tmnt.cpp,src/mame/konami/simpsons.cpp,\
+src/mame/nintendo/snes.cpp,src/mame/nintendo/snes_m.cpp,\
+src/mame/sega/megadriv.cpp,src/mame/sega/mdconsole.cpp,src/mame/sega/megacd.cpp,\
+src/mame/shared/mega32x.cpp,src/mame/sega/sms.cpp,src/mame/sega/sms_m.cpp,\
+src/mame/nintendo/gb.cpp
+```
+
+Output: `C:\mame-src\rdmame.exe`
+
+#### retrodepth.exe
+
+Requires vcpkg at `C:\vcpkg` and VS 2022 Build Tools.
+
+```bat
+cmake -S retrodepth -B retrodepth\out\build -G Ninja ^
+      -DCMAKE_BUILD_TYPE=Release ^
+      -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
+ninja -C retrodepth\out\build retrodepth
+```
+
+---
+
+## Repository layout
 
 ```
-Local\RetroDepthFrameBuffer
-├── RDHeader (1.125 MB reserved)
-│   ├── magic, version, frame_id, layer_count
-│   ├── RDLayerDesc[8]
-│   ├── palette_argb[256][16]
-│   └── pal_thumb[256][32×32]
-└── pixel + owner data
-    └── per layer: 512×256×4 bytes BGRA + 512×256×2 bytes owner ids
+build.bat                    one-step build script
+retrodepth/                  RetroDepth VR app source (C++17, CMake, vcpkg)
+  src/                       application source files
+  CMakeLists.txt
+  vcpkg.json                 dependencies: openxr-loader, nlohmann-json
+src/                         MAME patch files (overlay onto MAME source tree)
+  emu/retrodepth.h           shared-memory structs and API
+  emu/retrodepth.cpp         API implementation
+  emu/machine.cpp            MAME machine loop integration
+  mame/neogeo/               Neo Geo driver patches
+  mame/capcom/               CPS1 / CPS2 driver patches
+  mame/konami/               TMNT / Simpsons driver patches
+  mame/nintendo/             SNES / GB driver patches
+  mame/sega/                 Genesis / SMS driver patches
+  devices/video/             shared video device patches (PPU, VDP, LCD)
+scripts/src/emu.lua          MAME build system: registers retrodepth module
+```
+
+---
+
+## Shared memory protocol (for developers)
+
+rdmame exposes two named shared-memory blocks each frame.
+
+### `Local\RetroDepthFrameBuffer` — frame data
+
+```
+RDHeader (1.125 MB reserved)
+  magic           0x52445650 ('RDVP') — valid when set
+  version         5
+  frame_id        increments each frame — poll to detect new frames
+  layer_count     number of active layers (up to 8)
+  layers[]        RDLayerDesc per layer (name, width, height, z_order, data_offset, owner_offset)
+  palette_argb    [256][16] ARGB8888 — full Neo Geo palette RAM, gamma-corrected
+  pal_thumb       [256][32×32] ARGB8888 — per-palette thumbnails (on request)
+pixel + owner data
+  per layer: 512×256×4 bytes BGRA + 512×256×2 bytes uint16 palette owner IDs
 ```
 
 Total size: ~10 MB.
 
----
+**Layer names by system:**
 
-## Files
+| System | Layers |
+|--------|--------|
+| Neo Geo | `background`, `grp0`–`grp3` (sprites by depth group), `fix` (HUD) |
+| CPS1/CPS2 | `background`, `scroll1`–`scroll3`, `sprites` |
+| SNES | `bg1`–`bg4`, `sprites` |
+| Genesis | `plane_a`, `plane_b`, `sprites`, `window` |
+| SMS | `background`, `sprites` |
+| GB/GBC | `bg`, `sprites`, `window` |
 
-```
-scripts/src/emu.lua            — build system: registers retrodepth module
-src/emu/retrodepth.h           — shared-memory structs and API declarations
-src/emu/retrodepth.cpp         — API implementation (init, write, commit)
-src/emu/machine.cpp            — hooks retrodepth_init/commit into MAME machine loop
-src/mame/neogeo/neogeo.cpp     — Neo Geo driver: palette group routing
-src/mame/neogeo/neogeo_spr.cpp — sprite renderer: per-pixel palette owner tagging
-src/mame/neogeo/neogeo_spr.h   — sprite structures
-src/mame/neogeo/neogeo_v.cpp   — video: layer write calls
-src/mame/mame.lst              — game list entry
-src/mame/capcom/cps1.cpp       — CPS1 driver: layer routing
-src/mame/capcom/cps1_v.cpp     — CPS1 video: layer write calls
-src/mame/capcom/cps2.cpp       — CPS2 driver: layer write calls
-```
+### `Local\RetroDepthControl` — depth routing (written by consumer)
 
----
-
-## Building
-
-### Prerequisites
-
-- [MSYS2](https://www.msys2.org) with the MinGW64 toolchain:
-  ```bash
-  pacman -S mingw-w64-x86_64-toolchain make
-  ```
-- ~10 GB free disk space for the MAME source tree
-
-### 1 — Clone upstream MAME at the tested base commit
-
-```bash
-git clone https://github.com/mamedev/mame.git mame-src
-cd mame-src
-git checkout 3bca6291cc76b2b1ebfe7c50f225eb6ad44c9847
+```c
+struct RDPaletteRoute {
+    uint32_t magic;        // 0x52445052 ('RDPR') when valid
+    uint8_t  route[256];   // palette index → depth group (0–3); 0xFF = group 0
+    uint8_t  thumb_requested; // 1 = render per-palette thumbnails
+};
 ```
 
-### 2 — Overlay the patches
+### Minimal consumer example
 
-```bash
-cp -r mame-patches/. mame-src/
-```
-
-### 3 — Build
-
-```bash
-cd mame-src
-make SUBTARGET=neogeo SOURCES=src/mame/neogeo/neogeo.cpp -j8
-```
-
-Output: `mame-src/neogeo.exe`
-
----
-
-# Consuming the WSH memory
-
-// Open the frame buffer
-HANDLE hMap = OpenFileMappingA(FILE_MAP_READ, FALSE, "Local\\RetroDepthFrameBuffer");
+```cpp
+HANDLE hMap = OpenFileMappingA(FILE_MAP_READ, FALSE, "Local\\RetroDepthFB4");
 void*  base = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
 RDHeader* hdr = (RDHeader*)base;
 
-// Wait for a new frame
-uint32_t last_id = 0;
-while (hdr->frame_id == last_id) Sleep(1);
-last_id = hdr->frame_id;
+uint32_t last_id = hdr->frame_id;
+while (true) {
+    while (hdr->frame_id == last_id) Sleep(1);  // wait for new frame
+    last_id = hdr->frame_id;
 
-// Read each layer
-for (uint32_t i = 0; i < hdr->layer_count; i++) {
-    RDLayerDesc* layer = &hdr->layers[i];
-    uint32_t* pixels   = (uint32_t*)((uint8_t*)base + layer->data_offset);
-    uint16_t* owners   = (uint16_t*)((uint8_t*)base + layer->owner_offset);
-    // layer->name, layer->width, layer->height, layer->z_order
+    for (uint32_t i = 0; i < hdr->layer_count; i++) {
+        const RDLayerDesc& l = hdr->layers[i];
+        const uint32_t* pixels = (uint32_t*)((uint8_t*)base + l.data_offset);
+        // l.name, l.width, l.height, l.z_order
+    }
 }
+```
 
 ---
 
-## Licensing
+## License
 
-These patches modify MAME source code and are distributed under the same terms.
+The MAME patches (`src/` and `scripts/`) modify MAME source code and are distributed under the same terms as MAME:
 
-- MAME license: [upstream COPYING](https://github.com/mamedev/mame/blob/master/COPYING)
-- Full GPL text: [upstream GPL-2.0](https://github.com/mamedev/mame/blob/master/docs/legal/GPL-2.0)
+- [MAME license (COPYING)](https://github.com/mamedev/mame/blob/master/COPYING)
+- [GPL-2.0 full text](https://github.com/mamedev/mame/blob/master/docs/legal/GPL-2.0)
 
-If you redistribute binaries built from these patches you must also make the
-corresponding modified source available.
+If you redistribute binaries built from these patches you must also make the corresponding modified source available.
+
+The RetroDepth application source (`retrodepth/`) is released under the MIT License.
