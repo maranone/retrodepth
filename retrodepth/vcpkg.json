@@ -1,0 +1,8 @@
+{
+  "name": "retrodepth",
+  "version": "0.1.0",
+  "dependencies": [
+    "openxr-loader",
+    "nlohmann-json"
+  ]
+}
