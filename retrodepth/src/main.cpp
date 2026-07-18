@@ -7,6 +7,7 @@
 #include "settings_io.h"
 #include "launcher_window.h"
 #include "spectator_window.h"
+#include "stereo_display_window.h"
 #include "diagnostics_recorder.h"
 #include <iostream>
 #include <filesystem>
@@ -191,6 +192,9 @@ static void print_usage() {
         "  retrodepth --game <name>          Load configs/<name>.json and launch MAME\n"
         "  retrodepth --config <path>        Load explicit config file and launch MAME\n"
         "  retrodepth --window <title>       Flat mode: attach to already-running window\n"
+        "  retrodepth --output <mode>        vr, vr-mirror, preview, or sbs\n"
+        "\n"
+        "Aliases: --preview, --spectator/--mirror, --sbs\n"
         "\n"
         "MAME path and ROMs path are read from configs/settings.json.\n";
 }
@@ -203,6 +207,7 @@ int main(int argc, char** argv) {
     try {
         bool preview_mode = false;
         bool spectator_mode = false;
+        bool sbs_mode = false;
         bool inspect_mode = false;
         bool dynamic_mode   = false;
         bool beta_depth_mode = false;
@@ -217,8 +222,31 @@ int main(int argc, char** argv) {
             if ((a == "--game"   || a == "-g") && i+1 < argc) game_name   = argv[++i];
             else if ((a == "--config" || a == "-c") && i+1 < argc) config_path = argv[++i];
             else if ((a == "--window" || a == "-w") && i+1 < argc) window_title = argv[++i];
-            else if (a == "--preview" || a == "-p") preview_mode = true;
-            else if (a == "--spectator" || a == "--mirror") spectator_mode = true;
+            else if (a == "--preview" || a == "-p") {
+                preview_mode = true; spectator_mode = false; sbs_mode = false;
+            }
+            else if (a == "--spectator" || a == "--mirror") {
+                preview_mode = false; spectator_mode = true; sbs_mode = false;
+            }
+            else if (a == "--sbs") {
+                preview_mode = false; spectator_mode = false; sbs_mode = true;
+            }
+            else if (a == "--output" && i+1 < argc) {
+                std::string mode = argv[++i];
+                std::transform(mode.begin(), mode.end(), mode.begin(),
+                               [](unsigned char c) { return (char)std::tolower(c); });
+                if (mode == "vr") {
+                    preview_mode = false; spectator_mode = false; sbs_mode = false;
+                } else if (mode == "vr-mirror" || mode == "vr-view" || mode == "mirror") {
+                    preview_mode = false; spectator_mode = true; sbs_mode = false;
+                } else if (mode == "preview" || mode == "2d") {
+                    preview_mode = true; spectator_mode = false; sbs_mode = false;
+                } else if (mode == "sbs" || mode == "side-by-side" || mode == "stereo") {
+                    preview_mode = false; spectator_mode = false; sbs_mode = true;
+                } else {
+                    throw std::runtime_error("Unknown output mode: " + mode);
+                }
+            }
             else if (a == "--inspect") inspect_mode = true;
             else if (a == "--dynamic") dynamic_mode = true;
             else if (a == "--beta-depth") beta_depth_mode = true;
@@ -395,6 +423,17 @@ int main(int argc, char** argv) {
                 if (motion_mode)  preview->set_motion_scoring(true);
             }
             preview->run();
+        } else if (sbs_mode) {
+            auto sbs = std::make_unique<StereoDisplayWindow>(std::move(config));
+            if (auto_exit_ms > 0) sbs->set_auto_exit_ms(auto_exit_ms);
+            if (mame_hwnd) sbs->set_mame_hwnd(mame_hwnd);
+            if (dynamic_mode) {
+                sbs->set_dynamic_mode(true);
+                sbs->set_beta_depth(beta_depth_mode);
+                if (density_mode) sbs->set_density_scoring(true);
+                if (motion_mode)  sbs->set_motion_scoring(true);
+            }
+            sbs->run();
         } else {
             auto app = std::make_unique<XrApp>(std::move(config));
             app->set_spectator_enabled(spectator_mode);

@@ -30,10 +30,10 @@ enum : int {
     IDC_BIOS_PATH     = 1004,
     IDC_PICK_ROMS     = 1005,
     IDC_PICK_BIOS     = 1006,
-    IDC_LAUNCH_PREV   = 1007,
-    IDC_LAUNCH_VR     = 1008,
+    IDC_UNUSED_1007   = 1007,
+    IDC_UNUSED_1008   = 1008,
     IDC_REFRESH       = 1009,
-    IDC_LAUNCH_VR_VIEW = 1010,
+    IDC_UNUSED_1010   = 1010,
     IDC_INSPECT_GAME  = 1011,
     IDC_DYNAMIC_DEPTH = 1012,
     IDC_HIDE_INCORRECT = 1013,
@@ -43,6 +43,8 @@ enum : int {
     IDC_FOLDER_FILTER = 1017,
     IDC_SETTINGS      = 1018,
     IDC_FOLDER_FILTER_LIST = 1019,
+    IDC_OUTPUT_MODE   = 1020,
+    IDC_LAUNCH        = 1021,
 };
 
 static constexpr int kMargin = 16;
@@ -83,6 +85,13 @@ enum AuditStatus : int {
     AUDIT_PENDING = 0,
     AUDIT_OK = 1,
     AUDIT_BROKEN = 2,
+};
+
+enum class LaunchOutputMode : int {
+    Vr = 0,
+    VrMirror = 1,
+    Preview = 2,
+    Sbs = 3,
 };
 
 struct RomEntry {
@@ -149,9 +158,9 @@ struct LauncherState {
     HWND pick_bios_btn = nullptr;
     HWND refresh_btn = nullptr;
     HWND readme_btn = nullptr;
-    HWND launch_prev_btn = nullptr;
-    HWND launch_vr_btn = nullptr;
-    HWND launch_vr_view_btn = nullptr;
+    HWND output_label = nullptr;
+    HWND output_combo = nullptr;
+    HWND launch_btn = nullptr;
     HWND dynamic_chk   = nullptr;
     HWND beta_chk      = nullptr;
     HWND density_chk   = nullptr;
@@ -180,7 +189,7 @@ struct LauncherState {
 
 ULONG_PTR g_gdiplus_token = 0;
 
-bool launch_mode(LauncherState* st, bool preview, bool spectator, bool inspect = false, bool dynamic = false, bool beta = false, bool density = false, bool motion = false, bool hide_mame = true);
+bool launch_mode(LauncherState* st, LaunchOutputMode output, bool inspect = false, bool dynamic = false, bool beta = false, bool density = false, bool motion = false, bool hide_mame = true);
 
 bool preview_cancelled(HANDLE cancel_event) {
     return cancel_event && WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0;
@@ -501,7 +510,16 @@ void set_status(LauncherState* st, const std::string& text) {
 
 void invalidate_action_buttons(LauncherState* st) {
     if (!st) return;
-    if (st->launch_vr_btn) InvalidateRect(st->launch_vr_btn, nullptr, TRUE);
+    if (st->launch_btn) InvalidateRect(st->launch_btn, nullptr, TRUE);
+}
+
+LaunchOutputMode selected_output_mode(const LauncherState* st) {
+    if (!st || !st->output_combo)
+        return LaunchOutputMode::Vr;
+    int sel = (int)SendMessageW(st->output_combo, CB_GETCURSEL, 0, 0);
+    if (sel < 0 || sel > (int)LaunchOutputMode::Sbs)
+        return LaunchOutputMode::Vr;
+    return (LaunchOutputMode)sel;
 }
 
 std::vector<int> visible_rom_indices(const LauncherState* st);
@@ -731,23 +749,23 @@ void layout_launcher(LauncherState* st, HWND hwnd) {
 
     if (!st->settings_open) {
         const int settings_w = 110;
-        const int preview_w = 128;
-        const int vr_view_w = 170;
-        const int vr_w = 146;
+        const int launch_w = 110;
+        const int output_w = 230;
+        const int output_label_w = 58;
         const int label_w = 54;
         const int settings_x = rc.right - kMargin - settings_w;
-        const int preview_x = settings_x - kToolbarGap - preview_w;
-        const int vr_view_x = preview_x - kToolbarGap - vr_view_w;
-        const int vr_x = vr_view_x - kToolbarGap - vr_w;
+        const int launch_x = settings_x - kToolbarGap - launch_w;
+        const int output_x = launch_x - kToolbarGap - output_w;
+        const int output_label_x = output_x - 6 - output_label_w;
         const int combo_x = kMargin + label_w + 6;
-        int combo_w = vr_x - kToolbarGap - combo_x;
+        int combo_w = output_label_x - kToolbarGap - combo_x;
         if (combo_w < 140) combo_w = 140;
 
         place(st->folder_filter_label, kMargin, toolbar_y + 7, label_w, 22, true);
         place(st->folder_filter_combo, combo_x, toolbar_y + 2, combo_w, kButtonH, true);
-        place(st->launch_vr_btn, vr_x, toolbar_y, vr_w, kLaunchH, true);
-        place(st->launch_vr_view_btn, vr_view_x, toolbar_y, vr_view_w, kLaunchH, true);
-        place(st->launch_prev_btn, preview_x, toolbar_y, preview_w, kLaunchH, true);
+        place(st->output_label, output_label_x, toolbar_y + 7, output_label_w, 22, true);
+        place(st->output_combo, output_x, toolbar_y + 4, output_w, 240, true);
+        place(st->launch_btn, launch_x, toolbar_y, launch_w, kLaunchH, true);
         place(st->settings_btn, settings_x, toolbar_y, settings_w, kLaunchH, true);
         SetWindowTextW(st->settings_btn, L"Settings");
 
@@ -780,8 +798,9 @@ void layout_launcher(LauncherState* st, HWND hwnd) {
         SetWindowTextW(st->settings_btn, L"Back");
         place(st->folder_filter_label, 0, 0, 0, 0, false);
         place(st->folder_filter_combo, 0, 0, 0, 0, false);
-        place(st->launch_vr_btn, 0, 0, 0, 0, false);
-        place(st->launch_vr_view_btn, 0, 0, 0, 0, false);
+        place(st->output_label, 0, 0, 0, 0, false);
+        place(st->output_combo, 0, 0, 0, 0, false);
+        place(st->launch_btn, 0, 0, 0, 0, false);
         place(st->cover_grid, 0, 0, 0, 0, false);
 
         place(st->roms_path, left_x, base_y + 4, label_w, kPathH, true);
@@ -791,7 +810,6 @@ void layout_launcher(LauncherState* st, HWND hwnd) {
 
         place(st->refresh_btn, left_x, base_y + 76, 140, kButtonH, true);
         place(st->readme_btn, left_x + 152, base_y + 76, 140, kButtonH, true);
-        place(st->launch_prev_btn, 0, 0, 0, 0, false);
 
         place(st->dynamic_chk, left_x, base_y + 128, checkbox_col_w, 22, true);
         place(st->beta_chk, left_x, base_y + 154, checkbox_col_w, 22, true);
@@ -1662,44 +1680,6 @@ HFONT create_launcher_title_font(HWND hwnd) {
         L"Segoe UI");
 }
 
-void draw_launch_vr_button(LauncherState* st, const DRAWITEMSTRUCT* dis) {
-    if (!dis) return;
-
-    const bool has_selection = st && st->selected_index >= 0 &&
-        st->selected_index < (int)st->roms.size() && !st->roms[st->selected_index].hidden;
-    const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-    const bool focused = (dis->itemState & ODS_FOCUS) != 0;
-
-    COLORREF bg = has_selection ? RGB(180, 238, 180) : RGB(90, 90, 90);
-    COLORREF border = has_selection ? RGB(92, 160, 92) : RGB(60, 60, 60);
-    COLORREF text = has_selection ? RGB(24, 56, 24) : RGB(225, 225, 225);
-    if (pressed)
-        bg = has_selection ? RGB(156, 220, 156) : RGB(74, 74, 74);
-
-    HBRUSH brush = CreateSolidBrush(bg);
-    FillRect(dis->hDC, &dis->rcItem, brush);
-    DeleteObject(brush);
-
-    HPEN pen = CreatePen(PS_SOLID, 1, border);
-    HGDIOBJ old_pen = SelectObject(dis->hDC, pen);
-    HGDIOBJ old_brush = SelectObject(dis->hDC, GetStockObject(HOLLOW_BRUSH));
-    Rectangle(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right, dis->rcItem.bottom);
-    SelectObject(dis->hDC, old_brush);
-    SelectObject(dis->hDC, old_pen);
-    DeleteObject(pen);
-
-    SetBkMode(dis->hDC, TRANSPARENT);
-    SetTextColor(dis->hDC, text);
-    RECT text_rc = dis->rcItem;
-    DrawTextW(dis->hDC, L"Launch In VR", -1, &text_rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    if (focused) {
-        RECT focus = dis->rcItem;
-        InflateRect(&focus, -4, -4);
-        DrawFocusRect(dis->hDC, &focus);
-    }
-}
-
 void paint_launcher_background(HWND hwnd, HDC hdc) {
     RECT rc{};
     GetClientRect(hwnd, &rc);
@@ -1746,7 +1726,7 @@ LRESULT CALLBACK cover_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 bool den = st->density_chk   && SendMessageW(st->density_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
                 bool mot = st->motion_chk    && SendMessageW(st->motion_chk,    BM_GETCHECK, 0, 0) == BST_CHECKED;
                 bool hid = st->hide_mame_chk && SendMessageW(st->hide_mame_chk, BM_GETCHECK, 0, 0) == BST_CHECKED;
-                if (launch_mode(st, false, false, false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
+                if (launch_mode(st, selected_output_mode(st), false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
             }
         }
         return 0;
@@ -2033,7 +2013,7 @@ void sync_path_labels(LauncherState* st) {
     set_text(st->bios_path, "BIOS: " + st->settings.bios_path);
 }
 
-bool launch_mode(LauncherState* st, bool preview, bool spectator, bool inspect, bool dynamic, bool beta, bool density, bool motion, bool hide_mame) {
+bool launch_mode(LauncherState* st, LaunchOutputMode output, bool inspect, bool dynamic, bool beta, bool density, bool motion, bool hide_mame) {
     int sel = st->selected_index;
     if (sel < 0 || sel >= (int)st->roms.size()) {
         set_status(st, "Pick a ROM first.");
@@ -2075,8 +2055,19 @@ bool launch_mode(LauncherState* st, bool preview, bool spectator, bool inspect, 
         cmd += " --system " + st->roms[sel].system;
     if (!st->roms[sel].source_dir.empty())
         cmd += " --romdir \"" + fs::absolute(st->roms[sel].source_dir).string() + "\"";
-    if (preview) cmd += " --preview";
-    if (spectator) cmd += " --spectator";
+    switch (output) {
+    case LaunchOutputMode::Vr:
+        break;
+    case LaunchOutputMode::VrMirror:
+        cmd += " --spectator";
+        break;
+    case LaunchOutputMode::Preview:
+        cmd += " --preview";
+        break;
+    case LaunchOutputMode::Sbs:
+        cmd += " --sbs";
+        break;
+    }
     if (inspect) cmd += " --inspect";
     if (dynamic) cmd += " --dynamic";
     if (beta)      cmd += " --beta-depth";
@@ -2213,12 +2204,17 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             16, 126, 700, 460, hwnd, (HMENU)IDC_COVER_GRID, nullptr, nullptr);
         SetWindowLongPtrW(st->cover_grid, GWLP_USERDATA, (LONG_PTR)st);
         SetWindowLongPtrW(st->cover_grid, GWLP_WNDPROC, (LONG_PTR)cover_wnd_proc);
-        st->launch_prev_btn = CreateWindowW(L"BUTTON", L"2D Preview", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-            730, 160, 180, 28, hwnd, (HMENU)IDC_LAUNCH_PREV, nullptr, nullptr);
-        st->launch_vr_btn = CreateWindowW(L"BUTTON", L"Launch In VR", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
-            730, 220, 146, kLaunchH, hwnd, (HMENU)IDC_LAUNCH_VR, nullptr, nullptr);
-        st->launch_vr_view_btn = CreateWindowW(L"BUTTON", L"Launch VR + View", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-            730, 280, 170, kLaunchH, hwnd, (HMENU)IDC_LAUNCH_VR_VIEW, nullptr, nullptr);
+        st->output_label = CreateWindowW(L"STATIC", L"Output:", WS_CHILD | WS_VISIBLE,
+            730, 160, 58, 22, hwnd, nullptr, nullptr, nullptr);
+        st->output_combo = CreateWindowW(L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
+            730, 184, 230, 240, hwnd, (HMENU)IDC_OUTPUT_MODE, nullptr, nullptr);
+        SendMessageW(st->output_combo, CB_ADDSTRING, 0, (LPARAM)L"VR Headset");
+        SendMessageW(st->output_combo, CB_ADDSTRING, 0, (LPARAM)L"VR Headset + Desktop View");
+        SendMessageW(st->output_combo, CB_ADDSTRING, 0, (LPARAM)L"2D Preview");
+        SendMessageW(st->output_combo, CB_ADDSTRING, 0, (LPARAM)L"3D Screen - Side by Side");
+        SendMessageW(st->output_combo, CB_SETCURSEL, (WPARAM)0, 0);
+        st->launch_btn = CreateWindowW(L"BUTTON", L"Launch", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+            730, 220, 146, kLaunchH, hwnd, (HMENU)IDC_LAUNCH, nullptr, nullptr);
         st->dynamic_chk = CreateWindowW(L"BUTTON", L"Dynamic Depth", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
             730, 376, 150, 22, hwnd, (HMENU)IDC_DYNAMIC_DEPTH, nullptr, nullptr);
         st->beta_chk = CreateWindowW(L"BUTTON", L"Beta Depth", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
@@ -2305,14 +2301,6 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         break;
-    case WM_DRAWITEM: {
-        auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
-        if (st && dis && dis->CtlID == IDC_LAUNCH_VR) {
-            draw_launch_vr_button(st, dis);
-            return TRUE;
-        }
-        break;
-    }
     case WM_COMMAND:
         if (!st) break;
         switch (LOWORD(wp)) {
@@ -2381,31 +2369,13 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             else if (!st->preview_running)
                 set_status(st, "Auto preview generation is disabled.");
             return 0;
-        case IDC_LAUNCH_PREV: {
+        case IDC_LAUNCH: {
             bool dyn = st->dynamic_chk   && SendMessageW(st->dynamic_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
             bool bet = st->beta_chk      && SendMessageW(st->beta_chk,      BM_GETCHECK, 0, 0) == BST_CHECKED;
             bool den = st->density_chk   && SendMessageW(st->density_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
             bool mot = st->motion_chk    && SendMessageW(st->motion_chk,    BM_GETCHECK, 0, 0) == BST_CHECKED;
             bool hid = st->hide_mame_chk && SendMessageW(st->hide_mame_chk, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            if (launch_mode(st, true, false, false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
-            return 0;
-        }
-        case IDC_LAUNCH_VR: {
-            bool dyn = st->dynamic_chk   && SendMessageW(st->dynamic_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool bet = st->beta_chk      && SendMessageW(st->beta_chk,      BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool den = st->density_chk   && SendMessageW(st->density_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool mot = st->motion_chk    && SendMessageW(st->motion_chk,    BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool hid = st->hide_mame_chk && SendMessageW(st->hide_mame_chk, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            if (launch_mode(st, false, false, false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
-            return 0;
-        }
-        case IDC_LAUNCH_VR_VIEW: {
-            bool dyn = st->dynamic_chk   && SendMessageW(st->dynamic_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool bet = st->beta_chk      && SendMessageW(st->beta_chk,      BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool den = st->density_chk   && SendMessageW(st->density_chk,   BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool mot = st->motion_chk    && SendMessageW(st->motion_chk,    BM_GETCHECK, 0, 0) == BST_CHECKED;
-            bool hid = st->hide_mame_chk && SendMessageW(st->hide_mame_chk, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            if (launch_mode(st, false, true, false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
+            if (launch_mode(st, selected_output_mode(st), false, dyn, bet, den, mot, hid)) PostQuitMessage(0);
             return 0;
         }
         }

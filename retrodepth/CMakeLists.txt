@@ -15,6 +15,7 @@ add_executable(retrodepth
     src/xr_app.cpp
     src/preview_window.cpp
     src/spectator_window.cpp
+    src/stereo_display_window.cpp
     src/diagnostics_recorder.cpp
     src/dynamic_router.cpp
     src/d3d11_renderer.cpp
