@@ -104,7 +104,7 @@ private:
     GameConfig        m_config;
     LayerEditor       m_editor{m_config}; // must be after m_config
     GameConfig        m_factory_default_config;
-    ShmemReader       m_shmem;
+    std::unique_ptr<IFrameSource> m_source;
     std::vector<LayerFrame> m_last_frames;
 
     // Eye-height locking (F5 to snap/lock, F5 again to resume live tracking)
@@ -145,6 +145,7 @@ private:
     // --- Controller input ---
 public:
     void set_mame_hwnd(HWND h) { m_mame_hwnd = h; }
+    void set_source(std::unique_ptr<IFrameSource> s) { m_source = std::move(s); }
 private:
     // Actions
     XrActionSet m_action_set    = XR_NULL_HANDLE;

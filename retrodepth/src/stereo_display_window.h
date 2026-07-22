@@ -23,6 +23,7 @@ public:
     void run();
     void set_auto_exit_ms(uint32_t v) { m_auto_exit_ms = v; }
     void set_mame_hwnd(HWND h) { m_mame_hwnd = h; }
+    void set_source(std::unique_ptr<IFrameSource> s) { m_source = std::move(s); }
     void set_dynamic_mode(bool v);
     void set_beta_depth(bool v);
     void set_density_scoring(bool v);
@@ -40,7 +41,7 @@ private:
     static LRESULT CALLBACK wnd_proc(HWND, UINT, WPARAM, LPARAM);
 
     GameConfig m_config;
-    ShmemReader m_shmem;
+    std::unique_ptr<IFrameSource> m_source;
     std::vector<LayerFrame> m_last_frames;
     HWND m_mame_hwnd = nullptr;
     HWND m_hwnd = nullptr;

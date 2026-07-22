@@ -19,6 +19,7 @@ void hr_check(HRESULT hr, const char* msg) {
 StereoDisplayWindow::StereoDisplayWindow(GameConfig config)
     : m_config(std::move(config))
 {
+    m_source = std::make_unique<ShmemReader>();
     create_window();
     create_d3d11();
     create_swapchain();
@@ -261,7 +262,7 @@ void StereoDisplayWindow::run() {
             m_running = false;
             break;
         }
-        if (!printed_connected && m_shmem.is_connected()) {
+        if (!printed_connected && m_source->is_connected()) {
             std::cout << "[SBS] MAME shared memory connected.\n";
             printed_connected = true;
         }
@@ -274,7 +275,7 @@ void StereoDisplayWindow::run() {
 }
 
 void StereoDisplayWindow::render_frame() {
-    auto new_frames = m_shmem.poll(m_config);
+    auto new_frames = m_source->poll(m_config);
     if (!new_frames.empty()) {
         if ((int)new_frames.size() != m_last_layer_count) {
             m_renderer->resize_layers((int)new_frames.size());

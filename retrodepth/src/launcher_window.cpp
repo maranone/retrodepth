@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -65,11 +66,11 @@ static constexpr UINT WM_PREVIEW_RESULT = WM_APP + 3;
 static constexpr UINT WM_PREVIEW_DONE   = WM_APP + 4;
 static constexpr UINT_PTR kPreviewTimerId = 1;
 static constexpr UINT kPreviewTimerMs = 100;
-static constexpr int kPreviewFrameCount = 20;
-static constexpr int kPreviewFrameSeconds = 1;
-static constexpr int kPreviewSkipSeconds = 12;
-static constexpr ULONGLONG kSelectedPreviewPeriodMs = 125ULL;
+static constexpr int kPreviewFrameCount = 3;
+static constexpr int kPreviewFrameSeconds = 10;
+static constexpr int kPreviewSkipSeconds = 20;
 static constexpr ULONGLONG kBackgroundPreviewPeriodMs = 10000ULL;
+static constexpr ULONGLONG kSelectedPreviewPeriodMs = 2000ULL;
 static constexpr int kPreviewMaxWidth = 320;
 static constexpr int kPreviewMaxHeight = 240;
 static constexpr long kPreviewJpegQuality = 70;
@@ -189,7 +190,7 @@ struct LauncherState {
 
 ULONG_PTR g_gdiplus_token = 0;
 
-bool launch_mode(LauncherState* st, LaunchOutputMode output, bool inspect = false, bool dynamic = false, bool beta = false, bool density = false, bool motion = false, bool hide_mame = true);
+bool launch_mode(LauncherState* st, LaunchOutputMode output, bool inspect = false, bool dynamic = false, bool beta = false, bool density = false, bool motion = false, bool hide_mame = false);
 
 bool preview_cancelled(HANDLE cancel_event) {
     return cancel_event && WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0;
@@ -840,8 +841,18 @@ std::unordered_map<std::string, fs::path> index_covers(const fs::path& rom_dir) 
         if (!entry.is_regular_file()) continue;
         if (!is_cover_ext(entry.path())) continue;
         std::string stem = path_utf8(entry.path().stem());
-        if (!stem.empty() && !out.count(stem))
-            out[stem] = entry.path();
+        auto add_key = [&](const std::string& key) {
+            if (!key.empty() && !out.count(key))
+                out[key] = entry.path();
+        };
+        add_key(stem);
+        for (const char* suffix : {"-image", "-marquee", "_image", "_marquee"}) {
+            const size_t suffix_len = strlen(suffix);
+            if (stem.size() > suffix_len &&
+                _stricmp(stem.c_str() + stem.size() - suffix_len, suffix) == 0) {
+                add_key(stem.substr(0, stem.size() - suffix_len));
+            }
+        }
     }
     return out;
 }
@@ -2233,9 +2244,9 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             WS_CHILD | WS_CLIPSIBLINGS | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
             0, 0, 0, 0, hwnd, (HMENU)IDC_FOLDER_FILTER_LIST, nullptr, nullptr);
         ShowWindow(st->folder_filter_list, SW_HIDE);
-        SendMessageW(st->hide_mame_chk, BM_SETCHECK, BST_CHECKED, 0); // on by default
+        SendMessageW(st->hide_mame_chk, BM_SETCHECK, BST_UNCHECKED, 0);
         SendMessageW(st->hide_incorrect_chk, BM_SETCHECK, BST_CHECKED, 0);
-        SendMessageW(st->generate_previews_chk, BM_SETCHECK, BST_CHECKED, 0);
+        SendMessageW(st->generate_previews_chk, BM_SETCHECK, BST_UNCHECKED, 0);
         SendMessageW(st->dynamic_chk, BM_SETCHECK, BST_CHECKED, 0);
         st->status = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
             16, 572, 860, 20, hwnd, (HMENU)IDC_STATUS, nullptr, nullptr);

@@ -47,12 +47,13 @@ private:
     GameConfig        m_config;
     LayerEditor       m_editor{m_config};              // must be after m_config
     EditorInfoWindow  m_info_win{m_config, m_editor};  // must be after m_editor
-    ShmemReader    m_shmem;
+    std::unique_ptr<IFrameSource> m_source;
     std::vector<LayerFrame> m_last_frames;
     HWND           m_mame_hwnd = nullptr;
 
 public:
     void set_mame_hwnd(HWND h) { m_mame_hwnd = h; m_info_win.set_mame_hwnd(h); }
+    void set_source(std::unique_ptr<IFrameSource> s) { m_source = std::move(s); }
     void set_dynamic_mode(bool v);
     void set_beta_depth(bool v);
     void set_density_scoring(bool v);

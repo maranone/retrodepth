@@ -394,6 +394,7 @@ static std::vector<RandomLaunchEntry> collect_random_launch_entries(const fs::pa
 PreviewWindow::PreviewWindow(GameConfig config)
     : m_config(std::move(config))
 {
+    m_source = std::make_unique<ShmemReader>();
     create_window();
     create_d3d11();
     create_swapchain();
@@ -864,8 +865,8 @@ void PreviewWindow::run() {
         }
 
         // Diagnostic: report shmem and frame arrival
-        if (!printed_connected && m_shmem.is_connected()) {
-            std::cout << "[Preview] MAME shared memory connected.\n";
+        if (!printed_connected && m_source->is_connected()) {
+            std::cout << "[Preview] Frame source connected.\n";
             printed_connected = true;
         }
         if (!printed_frames && !m_last_frames.empty()) {
@@ -882,8 +883,8 @@ void PreviewWindow::render_frame() {
     if (m_status_ui_dirty)
         refresh_status_ui();
 
-    m_shmem.set_thumb_needed(m_editor.is_active());
-    auto new_frames = m_shmem.poll(m_config);
+    m_source->set_thumb_needed(m_editor.is_active());
+    auto new_frames = m_source->poll(m_config);
     if (!new_frames.empty()) {
         if ((int)new_frames.size() != m_last_layer_count) {
             m_renderer->resize_layers((int)new_frames.size());
@@ -893,9 +894,9 @@ void PreviewWindow::render_frame() {
             m_renderer->update_layer(i, new_frames[i]);
         m_last_frames = std::move(new_frames);
         // Forward live palette colours to editor window for swatch display
-        const uint32_t (*pals)[16] = m_shmem.get_palettes();
+        const uint32_t (*pals)[16] = m_source->get_palettes();
         if (pals) m_info_win.set_palette_colors(pals);
-        const uint32_t (*thumbs)[32 * 32] = m_shmem.get_thumbs();
+        const uint32_t (*thumbs)[32 * 32] = m_source->get_thumbs();
         if (thumbs) m_info_win.set_palette_thumbs(thumbs);
     }
     if (m_dynamic_router && !m_last_frames.empty())

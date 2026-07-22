@@ -1,104 +1,3 @@
-Retro Depth PC (Setup Notes) By Legaiaflame
-
-Special Thanks to Gunstar Gamer
-
-Setup for ROMS (SNES):
-
-You will need a Bios file called (s_smp.zip) which contains a file called spc700.rom, which Retro Depth needs to run SNES roms. You will have to find this yourself, sorry.
-
-Put (s_smp.zip) in the roms folder where you have all of your games. Don't unzip it, just put it in there as is. If this zip file is not in the folder you won't be able to play SNES games.
-
-If for some reason SNES games don't show up in the rom preview list, go to settings and un-check Hide Incorrect Roms.
-
-Setup for ROMS (Genesis):
-
-Genesis games load as is, no zip file/Bios needed.
-
-How to Play Arcade Games:
-
-Launch retrodepth.exe
-In Settings Uncheck Hide MAME Window
-Launch into any game and when the game is loaded up close the mini MAME window that the game is in.
-Launch rdmame.exe and start any game you want.
-Start up (Important!)
-
-Start rdmame.exe first, then tab/Window out but don't close the window. Now open the main retrodepth.exe emulator. Go to Settings and un-check Hide MAME Window and Hide Incorrect Roms. Hit Back and start your Game.
-
-Left Side Menu in VR View:
-
-There is also a Menu to the far left of your headset view where you can change contrast, saturation, screen tilt, curve as well as turning on and off shadows and 3D upscale. There are also colored squares to the far left. If you point and click on them you can change the background window to black or whatever color you want.
-
-3D Settings: (Need VR Controller)
-
-Move the right analog up and down to zoom in or out. Pressing in left analog multiple times, gives different 3D modes. And pressing slightly left or right on the right analog changes how far the 3D pops out. Just press it a hair, very lightly. Pressing in right analog while pointing at a direction will move the game screen left or right. So you can position it where you want.
-
-On the left VR controller press the left trigger button to make the screen bigger. Press the left toggle button to make the screen smaller. Making the screen smaller will add duplicate layers. You can use the editor to manually select a layer and un duplicate layers. (edited)Saturday, June 13, 2026 8:01 PM
-
-How to Manually Select Layers:
-
-Before you run a game, open up rdmame.exe, then tab out but don't close the window. Now open the main retrodepth.exe emulator. Now, you will be able to see the following settings take effect in the preview window. The commands to manually select layers are as follows:
-
-Press R to Turn on & off layer selection mode
-Press E to Select layer (will flash yellow)
-Press W to Move layer backwards
-Press S to Move layer forward
-Press A to Make layer smaller
-Press D to Make layer bigger
-Press Z to Duplicate layer
-Press X to Un Duplicate layer
-
-How to Bring Back Missing Text Boxes or Background Layers if they are not Visible:
-
-If you can't see a text box or certain background layers are not showing, you will have to try to find it with the Manual Layer Selector as mentioned above. Press R to turn on the selector then press E to start selecting layers (will flash Yellow). Usually the missing text layer is somewhere hidden in the background. So while pressing E and cycling through the available layers, try to get a background layer that is furthest off in the background (Even if the background layer is not blinking yellow maybe it will come forward). Next keep pressing S to bring it forward from the background and into view.
-
-Also, and easier way to find these hidden layers is to use the menu on the left side to use The Screen Tilt R/L feature. Then, you can easily see all of the visible layers hidden behind one another.
-
-How to Save:
-
-You can save with specific F keys:
-
-Press F6 the game will pause. now save on number keys 1-9
-Press F7 the game will pause. now load your save state from number keys 1-9
-
-Multiple savestates do work for multiple games. Lets say I make a savestate for Sonic 3 on 1 then make a save state for Donkey Kong on 2, they will both load as long as you don't save over them. In-game saves seem to be working but I recommend to make multiple save states just to be safe and play one game at a time if you can. Just make sure you always start the rdmame.exe first before starting retrodepth.exe.
-
-Controller Issues/Loss of Input: (Solution)
-
-If you click out of the Retro Depth emulator window you will completely lose controller input. To fix this, before you run a game, open up rdmame.exe, then tab/Window out but don't close the window. Now open the main retrodepth.exe emulator. Next, go to settings and uncheck Hide MAME window. Now run a game. If you click outside of the window you will lose input again, but since the MAME preview window is open we can just click on that to restore controller input.
-
-How to Setup SNES/Genesis Input for PC Controller:
-
-Before you run a game, open up rdmame.exe, then tab out but don't close the window. Now open the main retrodepth.exe emulator. Next, go to settings and uncheck Hide MAME window and un-check Hide Incorrect Roms. Now run an SNES game.
-
-Start a SNES/Genesis game
-
-Press Tab to bring up the rdmame.exe settings window
-
-Double-click "Input Settings" and then "Input Assignments (This System)
-
-Double click each input to Setup your PC controller
-
-Scroll all the way down to "Return to Previous Menu" and double-click to return
-
-Double-click "Return to Previous Menu" and double-click "Close Menu" to return to game.
-
-I lost my input settings a couple times, so you might have to reset controls each time you restart a game if you don't load from a savestate.
-
-How to Add 6 Button Controls for Genesis Games:
-
-Before you run a game, open up rdmame.exe, then tab out but don't close the window. Now open the main retrodepth.exe emulator. Next, go to settings and uncheck Hide MAME window. Now run a game.
-
-Start a Genesis game
-
-Press Tab to bring up the rdmame.exe settings window
-
-Choose "Slot Devices",
-
-Change ctrl1 (or ctrl2) from "mdpad" to "md6button" (just press left once.),
-
-Select "Reset System." to enable the 6 button controls
-
-
 # RetroDepth
 
 Play retro arcade and console games in VR as a layered 3D diorama — each video layer (background, sprites, HUD) rendered at a different depth so the screen has real parallax.
@@ -112,6 +11,18 @@ RetroDepth runs alongside a patched build of MAME (**rdmame**). MAME handles emu
 - Windows 10/11 64-bit
 - A VR headset supported by **SteamVR** (Quest via Air Link, Index, Vive, WMR, etc.)
 - SteamVR installed and running before launching RetroDepth
+
+---
+
+## Windows Defender warning
+
+Windows may flag `retrodepth.exe` or `rdmame.exe` as suspicious and delete them automatically. This is a false positive — the executables are not signed yet. RetroDepth captures screen content and uses shared memory, which looks similar to malware to heuristic scanners.
+
+**If the file was deleted:** open Windows Security → Virus & threat protection → Protection history, find the quarantined item, and click **Allow**.
+
+**Before running:** right-click `retrodepth.exe` → Properties → tick **Unblock** → OK. This removes the internet download flag that triggers SmartScreen.
+
+**To prevent future deletions:** add the RetroDepth folder as an exclusion in Windows Security → Virus & threat protection → Manage settings → Exclusions.
 
 ---
 

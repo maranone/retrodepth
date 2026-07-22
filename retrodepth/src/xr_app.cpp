@@ -540,6 +540,9 @@ static void xr_check(XrResult result, const char* msg) {
             err += "\n  --> API version unsupported by runtime (XR_ERROR_API_VERSION_UNSUPPORTED).";
         else if (result == -6 || result == -2)
             err += "\n  --> Is SteamVR running? Start SteamVR before launching retrodepth.";
+        else if (result == XR_ERROR_FORM_FACTOR_UNAVAILABLE)
+            err += "\n  --> OpenXR did not report an available headset (XR_ERROR_FORM_FACTOR_UNAVAILABLE)."
+                   "\n      Start/connect your VR runtime and headset, or launch with 2D Preview / Side-by-Side output.";
         throw std::runtime_error(err);
     }
 }
@@ -779,6 +782,7 @@ static std::string make_status_overlay(const GameConfig& config,
 XrApp::XrApp(GameConfig config)
     : m_config(std::move(config))
 {
+    m_source = std::make_unique<ShmemReader>();
     m_factory_default_config = m_config;
     build_default_vr_presets();
     m_vr_presets = m_default_vr_presets;
@@ -2156,7 +2160,7 @@ void XrApp::update_laser_hits(XrTime time, float eye_y) {
                     uint8_t pr = f.rgba[pidx + 2];
                     uint8_t pa = f.rgba[pidx + 3];
                     if (pa > 0) {
-                        const uint32_t (*pals)[16] = m_shmem.get_palettes();
+                        const uint32_t (*pals)[16] = m_source->get_palettes();
                         if (pals) {
                             int match_count = 0;
                             for (int p = 0; p < 256; ++p) {
@@ -2550,7 +2554,7 @@ void XrApp::render_frame() {
 
         // --- Read new frame from shared memory ---
         {
-            auto new_frames = m_shmem.poll(m_config);
+            auto new_frames = m_source->poll(m_config);
             if (!new_frames.empty()) {
                 m_renderer->resize_layers((int)new_frames.size());
                 for (int i = 0; i < (int)new_frames.size(); ++i)

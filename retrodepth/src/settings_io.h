@@ -8,6 +8,7 @@ struct Settings {
     std::string mame_args;
     std::string roms_path;
     std::string bios_path;
+    std::string snes_backend = "snes9x";
 };
 
 Settings load_settings(const std::filesystem::path& exe_dir);

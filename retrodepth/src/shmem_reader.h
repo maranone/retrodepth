@@ -47,28 +47,40 @@ struct RDHeader {
 #pragma pack(pop)
 
 // ---------------------------------------------------------------------------
-class ShmemReader {
+// Abstract frame source — implemented by ShmemReader (MAME) and Snes9xSource.
+// ---------------------------------------------------------------------------
+struct IFrameSource {
+    virtual ~IFrameSource() = default;
+    virtual std::vector<LayerFrame> poll(const GameConfig& config) = 0;
+    virtual bool is_connected() { return true; }
+    virtual const uint32_t (*get_palettes() const)[16] { return nullptr; }
+    virtual const uint32_t (*get_thumbs() const)[RD_THUMB_DIM * RD_THUMB_DIM] { return nullptr; }
+    virtual void set_thumb_needed(bool) {}
+};
+
+// ---------------------------------------------------------------------------
+class ShmemReader : public IFrameSource {
 public:
     ShmemReader();
     ~ShmemReader();
 
-    bool is_connected();
+    bool is_connected() override;
 
     // Returns new LayerFrames when frame_id advances; empty otherwise.
-    std::vector<LayerFrame> poll(const GameConfig& config);
+    std::vector<LayerFrame> poll(const GameConfig& config) override;
 
     // Returns the latest palette data (256×16 ARGB values).
     // Valid after the first successful poll(). nullptr if not yet connected.
-    const uint32_t (*get_palettes() const)[16] {
+    const uint32_t (*get_palettes() const)[16] override {
         return m_has_palette ? m_palette : nullptr;
     }
-    const uint32_t (*get_thumbs() const)[RD_THUMB_DIM * RD_THUMB_DIM] {
+    const uint32_t (*get_thumbs() const)[RD_THUMB_DIM * RD_THUMB_DIM] override {
         if (!m_has_thumb) return nullptr;
         return reinterpret_cast<const uint32_t (*)[RD_THUMB_DIM * RD_THUMB_DIM]>(m_pal_thumb_buf.get());
     }
     // Enable/disable the 1 MB thumbnail copy each frame.
     // Set true only while the palette editor is open.
-    void set_thumb_needed(bool v) { m_thumb_needed = v; }
+    void set_thumb_needed(bool v) override { m_thumb_needed = v; }
 
 private:
     bool try_open();

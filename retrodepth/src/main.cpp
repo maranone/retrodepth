@@ -9,6 +9,7 @@
 #include "spectator_window.h"
 #include "stereo_display_window.h"
 #include "diagnostics_recorder.h"
+#include "snes9x_source.h"
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -135,6 +136,65 @@ static HWND find_process_hwnd(HANDLE proc) {
     return data.hwnd;
 }
 
+struct MameStartupDismissData {
+    HANDLE proc = nullptr;
+    bool hide_window = false;
+};
+
+static void post_mame_key(HWND hwnd, WPARAM vk, LPARAM scan) {
+    PostMessageA(hwnd, WM_KEYDOWN, vk, scan);
+    Sleep(35);
+    PostMessageA(hwnd, WM_KEYUP, vk, scan | 0xC0000000);
+}
+
+static DWORD WINAPI auto_dismiss_mame_startup_thread(LPVOID p) {
+    std::unique_ptr<MameStartupDismissData> data(reinterpret_cast<MameStartupDismissData*>(p));
+    HWND hwnd = nullptr;
+    for (int i = 0; i < 40 && !hwnd; ++i) {
+        if (WaitForSingleObject(data->proc, 0) == WAIT_OBJECT_0)
+            break;
+        hwnd = find_process_hwnd(data->proc);
+        if (!hwnd)
+            Sleep(250);
+    }
+
+    if (hwnd) {
+        if (data->hide_window)
+            ShowWindow(hwnd, SW_HIDE);
+
+        // MAME has several non-gameinfo startup gates.  Some accept Enter,
+        // some require typing OK, and some accept left/right acknowledgement.
+        for (int i = 0; i < 8; ++i) {
+            post_mame_key(hwnd, VK_RETURN, 0x001C0001);
+            post_mame_key(hwnd, 'O', 0x00180001);
+            post_mame_key(hwnd, 'K', 0x00250001);
+            post_mame_key(hwnd, VK_LEFT, 0x004B0001);
+            post_mame_key(hwnd, VK_RIGHT, 0x004D0001);
+            Sleep(450);
+        }
+    }
+
+    CloseHandle(data->proc);
+    return 0;
+}
+
+static void start_mame_startup_dismiss_thread(HANDLE proc, bool hide_window) {
+    if (!proc)
+        return;
+    HANDLE dup = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), proc, GetCurrentProcess(), &dup,
+                         0, FALSE, DUPLICATE_SAME_ACCESS))
+        return;
+    auto* data = new MameStartupDismissData{ dup, hide_window };
+    HANDLE t = CreateThread(nullptr, 0, auto_dismiss_mame_startup_thread, data, 0, nullptr);
+    if (t) {
+        CloseHandle(t);
+    } else {
+        CloseHandle(dup);
+        delete data;
+    }
+}
+
 // Waits up to timeout_ms for the MAME shared memory to appear.
 static bool wait_for_shmem(int timeout_ms = 20000) {
     int elapsed = 0;
@@ -180,6 +240,68 @@ static GameConfig make_default_config_for_system(const std::string& system_name,
     if (system_name == "gbc")
         return GameConfig::make_default_gbc(game_name);
     return GameConfig::make_default_neogeo(game_name);
+}
+
+// ---------------------------------------------------------------------------
+// snes9x source helpers
+// ---------------------------------------------------------------------------
+
+static bool executable_exists_on_path(const char* exe_name) {
+    char buf[MAX_PATH] = {};
+    DWORD len = SearchPathA(nullptr, exe_name, nullptr, MAX_PATH, buf, nullptr);
+    return len > 0 && len < MAX_PATH;
+}
+
+static std::string lowercase_ext(const fs::path& path) {
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    return ext;
+}
+
+static bool snes9x_can_load_archive_path(const fs::path& path) {
+    const std::string ext = lowercase_ext(path);
+    if (ext == ".sfc" || ext == ".smc" || ext == ".zip")
+        return true;
+    if (ext == ".7z")
+        return executable_exists_on_path("7z.exe")
+            || executable_exists_on_path("7za.exe")
+            || executable_exists_on_path("7zr.exe")
+            || executable_exists_on_path("tar.exe");
+    return false;
+}
+
+static std::string resolve_snes_rom_path(const std::string& rom_name, const Settings& s) {
+    const std::string prefix = "snes -cart \"";
+    if (rom_name.size() <= prefix.size() || rom_name.substr(0, prefix.size()) != prefix)
+        return {};
+    auto start = rom_name.find('"') + 1;
+    auto end   = rom_name.rfind('"');
+    if (end <= start) return {};
+    std::string cart_name = rom_name.substr(start, end - start);
+    if (cart_name.find('\\') != std::string::npos || cart_name.find('/') != std::string::npos) {
+        fs::path cart_path = cart_name;
+        return snes9x_can_load_archive_path(cart_path) ? cart_name : std::string{};
+    }
+    for (const auto& dir : split_rom_paths(s.roms_path)) {
+        for (const char* ext : {".sfc", ".smc", ".zip", ".7z"}) {
+            fs::path c = dir / (cart_name + ext);
+            if (fs::exists(c) && snes9x_can_load_archive_path(c)) return c.string();
+            c = dir / "snes" / (cart_name + ext);
+            if (fs::exists(c) && snes9x_can_load_archive_path(c)) return c.string();
+        }
+    }
+    return {};
+}
+
+static std::unique_ptr<IFrameSource> make_source(const GameConfig& config, const Settings& settings) {
+    if (is_snes_cart_rom_name(config.rom_name) && settings.snes_backend == "snes9x") {
+        std::string rom_path = resolve_snes_rom_path(config.rom_name, settings);
+        if (!rom_path.empty())
+            return std::make_unique<Snes9xSource>(rom_path);
+        std::cerr << "Warning: could not resolve SNES ROM for: " << config.rom_name << " — falling back to MAME\n";
+    }
+    return std::make_unique<ShmemReader>();
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +464,14 @@ int main(int argc, char** argv) {
         if (inspect_mode)
             std::cout << "[main] inspect mode requested\n";
 
+        // Determine whether to use the snes9x in-process backend
+        bool use_snes9x = is_snes_cart_rom_name(config.rom_name)
+                          && settings.snes_backend == "snes9x"
+                          && !resolve_snes_rom_path(config.rom_name, settings).empty();
+
         // Launch MAME unless the user just wants to attach to an existing window
         HANDLE mame_proc = nullptr;
-        if (window_title.empty() && !config.rom_name.empty()) {
+        if (window_title.empty() && !config.rom_name.empty() && !use_snes9x) {
             // Kill any stale MAME process left from a previous crashed session.
             {
                 STARTUPINFOA si = {}; si.cb = sizeof(si);
@@ -363,6 +490,7 @@ int main(int argc, char** argv) {
             }
             mame_proc = launch_mame(settings, config.rom_name);
             if (mame_proc) {
+                start_mame_startup_dismiss_thread(mame_proc, hide_mame_mode);
                 std::cout << "Waiting for MAME shared memory...\n";
                 if (wait_for_shmem()) {
                     std::cout << "MAME ready.\n";
@@ -382,19 +510,6 @@ int main(int argc, char** argv) {
             if (mame_hwnd) {
                 std::cout << "MAME window found, keyboard forwarding enabled.\n";
                 if (hide_mame_mode) ShowWindow(mame_hwnd, SW_HIDE);
-                // Auto-dismiss the "one or more ROMs incorrect" warning MAME
-                // shows at startup.  The dialog blocks on a keypress; send
-                // Return after a brief delay so MAME has had time to render it.
-                HWND hwnd_copy = mame_hwnd;
-                HANDLE t = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
-                    HWND hw = reinterpret_cast<HWND>(p);
-                    Sleep(1500);
-                    PostMessageA(hw, WM_KEYDOWN, VK_RETURN, 0x001C0001);
-                    Sleep(50);
-                    PostMessageA(hw, WM_KEYUP,   VK_RETURN, 0xC01C0001);
-                    return 0;
-                }, reinterpret_cast<LPVOID>(hwnd_copy), 0, nullptr);
-                if (t) CloseHandle(t);
             }
         }
 
@@ -413,7 +528,9 @@ int main(int argc, char** argv) {
             }
             std::cerr << "[main] diagnostics recorder finished\n";
         } else if (preview_mode) {
+            auto source = make_source(config, settings);
             auto preview = std::make_unique<PreviewWindow>(std::move(config));
+            preview->set_source(std::move(source));
             if (auto_exit_ms > 0) preview->set_auto_exit_ms(auto_exit_ms);
             if (mame_hwnd) preview->set_mame_hwnd(mame_hwnd);
             if (dynamic_mode) {
@@ -424,7 +541,9 @@ int main(int argc, char** argv) {
             }
             preview->run();
         } else if (sbs_mode) {
+            auto source = make_source(config, settings);
             auto sbs = std::make_unique<StereoDisplayWindow>(std::move(config));
+            sbs->set_source(std::move(source));
             if (auto_exit_ms > 0) sbs->set_auto_exit_ms(auto_exit_ms);
             if (mame_hwnd) sbs->set_mame_hwnd(mame_hwnd);
             if (dynamic_mode) {
@@ -435,7 +554,9 @@ int main(int argc, char** argv) {
             }
             sbs->run();
         } else {
+            auto source = make_source(config, settings);
             auto app = std::make_unique<XrApp>(std::move(config));
+            app->set_source(std::move(source));
             app->set_spectator_enabled(spectator_mode);
             app->set_hide_mame(hide_mame_mode);
             if (dynamic_mode) {

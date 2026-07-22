@@ -27,9 +27,10 @@ Settings load_settings(const fs::path& exe_dir) {
         if (!f.is_open()) continue;
         json j;
         f >> j;
-        s.mame_exe  = j.value("mame_exe", "");
-        s.mame_args = j.value("mame_args", "");
-        s.roms_path = j.value("roms_path", s.roms_path);
+        s.mame_exe      = j.value("mame_exe", "");
+        s.mame_args     = j.value("mame_args", "");
+        s.roms_path     = j.value("roms_path", s.roms_path);
+        s.snes_backend  = j.value("snes_backend", s.snes_backend);
         if (j.contains("bios_path"))
             s.bios_path = j.value("bios_path", s.bios_path);
         // Resolve relative paths against exe_dir so they work regardless of cwd.
@@ -52,10 +53,11 @@ void save_settings(const fs::path& exe_dir, const Settings& s) {
     fs::path cfg_dir = exe_dir / "configs";
     fs::create_directories(cfg_dir);
     json j;
-    j["mame_exe"] = s.mame_exe;
-    j["mame_args"] = s.mame_args;
-    j["roms_path"] = s.roms_path;
-    j["bios_path"] = s.bios_path;
+    j["mame_exe"]      = s.mame_exe;
+    j["mame_args"]     = s.mame_args;
+    j["roms_path"]     = s.roms_path;
+    j["bios_path"]     = s.bios_path;
+    j["snes_backend"]  = s.snes_backend;
     std::ofstream f(cfg_dir / "settings.json");
     f << j.dump(2) << "\n";
 }
